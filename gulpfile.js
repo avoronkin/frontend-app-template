@@ -1,97 +1,111 @@
 'use strict';
 
 var gulp = require('gulp');
-// var gutil = require('gulp-util');
-var browserify = require('gulp-browserify');
-var uglify = require('gulp-uglify');
-var minifyCSS = require('gulp-minify-css');
-
-// var watch = require('gulp-watch');
-var gulpMultinject = require('gulp-multinject');
-
+var plugins = require('gulp-load-plugins')({
+  rename: {
+    'gulp-minify-css': 'minifyCSS'
+  }
+});
 var del = require('del');
-var concat = require('gulp-concat');
-var rename = require('gulp-rename');
-var gulpif = require('gulp-if');
-var runSequence = require('run-sequence');
-
-var production = false;
+var browserify = require('browserify');
+var transform = require('vinyl-transform');
+var minimist = require('minimist');
+var knownOptions = {
+  string: 'env',
+  default: {
+    env: 'develop'
+  }
+};
+var options = minimist(process.argv.slice(2), knownOptions);
 
 var distFolder = './dist/';
-
-function getBuildName(name) {
-  return name + '_' + (new Date()).getTime();
-}
-
-var buildName = getBuildName('app');
+var buildName;
 
 
-gulp.task('clean:dist', function(cb) {
+gulp.task('buildname', function(cb) {
+  var production = (options.env === 'production');
+
+  buildName = production ? 'build_' + (new Date()).getTime() : 'build';
+  cb();
+});
+
+
+gulp.task('clean', function(cb) {
   del(['dist/**'], cb);
 });
 
 
-gulp.task('index', function() {
+gulp.task('template', ['clean', 'buildname'], function() {
   return gulp.src(['./src/index.html'])
-    .pipe(gulpMultinject([
-        distFolder + 'js/' + buildName + '.js',
+    .pipe(plugins.multinject([
+        'js/' + buildName + '.js',
       ],
       'js'
     ))
-    .pipe(gulpMultinject([
-        distFolder + 'css/' + buildName + '.css',
+    .pipe(plugins.multinject([
+        'css/' + buildName + '.css',
       ],
       'css'
     ))
     .pipe(gulp.dest(distFolder));
-
 });
 
 
-gulp.task('scripts', function() {
+gulp.task('scripts', ['clean', 'buildname'], function() {
+  var production = (options.env === 'production');
+  var develop = (options.env === 'develop');
+
+  var browserified = transform(function(filename) {
+    var b = browserify(filename);
+    return b.bundle();
+  });
 
   return gulp.src('./node_modules/app/main.js', {
-      read: false
-    }).pipe(browserify({
-      // shim: {
-      // },
-      debug: false
-    }))
-    .pipe(rename(buildName + '.js'))
-    .pipe(gulpif(production, uglify()))
-    .pipe(gulp.dest(distFolder + '/js'));
+      // read: false
+    })
+    .pipe(browserified)
+    // .pipe(plugins.browserify({
+    //   // shim: {
+    //   // },
+    //   debug: false
+    // }))
+    .pipe(plugins.sourcemaps.init({loadMaps: true}))
+    .pipe(plugins.rename(buildName + '.js'))
+    .pipe(plugins.if(production, plugins.uglify()))
+    .pipe(plugins.sourcemaps.write('./'))
+    .pipe(gulp.dest(distFolder + '/js'))
+    .pipe(plugins.if(develop, plugins.livereload()));
 });
 
 
-gulp.task('styles', function() {
-  gulp.src('./src/css/*.css')
-    .pipe(concat(buildName + '.css'))
-    .pipe(gulp.dest(distFolder + '/css'));
+gulp.task('styles', ['clean', 'buildname'], function() {
+  var production = (options.env === 'production');
+  var develop = (options.env === 'develop');
+
+  return gulp.src('./src/css/*.css')
+    .pipe(plugins.sourcemaps.init())
+    .pipe(plugins.concat(buildName + '.css'))
+    .pipe(plugins.if(production, plugins.minifyCSS()))
+    .pipe(plugins.sourcemaps.write('./'))
+    .pipe(gulp.dest(distFolder + '/css'))
+    .pipe(plugins.if(develop, plugins.livereload()));
 });
+
+
+// gulp.task('nodemon', ['build'], function() {
+//   return plugins.nodemon({
+//     script: 'server.js'
+//   });
+// });
+
+
+gulp.task('build', ['template', 'scripts', 'styles']);
 
 
 gulp.task('default', ['build']);
 
-function build(cb) {
-  cb = cb || function() {};
-  buildName = getBuildName('app');
 
-  runSequence('clean:dist', [
-    'index',
-    'scripts',
-    'styles'
-  ], cb);
-}
-
-gulp.task('dev', ['build'], function() {
-  gulp.watch(['./node_modules/app/**/*.*', './src/**/*.*'], build);
+gulp.task('dev', function() {
+  plugins.livereload.listen();
+  gulp.watch(['./node_modules/app/**/*.*', './src/**/*.*'], ['build']);
 });
-
-gulp.task('production', function(cb) {
-  production = true;
-  build(cb);
-  production = false;
-});
-
-
-gulp.task('build', build);
