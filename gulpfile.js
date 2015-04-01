@@ -1,6 +1,8 @@
 'use strict';
 
 var gulp = require('gulp');
+var path = require('path');
+var merge = require('merge-stream');
 var plugins = require('gulp-load-plugins')({
   rename: {
     'gulp-minify-css': 'minifyCSS'
@@ -34,6 +36,15 @@ gulp.task('clean', function(cb) {
   del(['dist/**'], cb);
 });
 
+gulp.task('copy', ['clean'], function() {
+  var fonts = gulp.src('./src/fonts/**/*.*')
+    .pipe(gulp.dest(distFolder + 'fonts'));
+
+  var images = gulp.src('./src/images/**/*.*')
+    .pipe(gulp.dest(distFolder + 'images'));
+
+  return merge(fonts, images);
+});
 
 gulp.task('template', ['clean', 'buildname'], function() {
   return gulp.src(['./src/index.html'])
@@ -55,24 +66,24 @@ gulp.task('scripts', ['clean', 'buildname'], function() {
   var production = (options.env === 'production');
   var develop = (options.env === 'develop');
 
-  var browserified = transform(function(filename) {
-    var b = browserify(filename);
-    return b.bundle();
-  });
+  // var browserified = transform(function(filename) {
+  //   var b = browserify(filename);
+  //   return b.bundle();
+  // });
 
   return gulp.src('./node_modules/app/main.js', {
-      // read: false
+      read: false
     })
-    .pipe(browserified)
-    // .pipe(plugins.browserify({
-    //   // shim: {
-    //   // },
-    //   debug: false
-    // }))
-    .pipe(plugins.sourcemaps.init({loadMaps: true}))
+    // .pipe(browserified)
+    .pipe(plugins.browserify({
+      // shim: {
+      // },
+      debug: false
+    }))
+    // .pipe(plugins.sourcemaps.init({loadMaps: true}))
     .pipe(plugins.rename(buildName + '.js'))
     .pipe(plugins.if(production, plugins.uglify()))
-    .pipe(plugins.sourcemaps.write('./'))
+    // .pipe(plugins.sourcemaps.write('./'))
     .pipe(gulp.dest(distFolder + '/js'))
     .pipe(plugins.if(develop, plugins.livereload()));
 });
@@ -83,23 +94,35 @@ gulp.task('styles', ['clean', 'buildname'], function() {
   var develop = (options.env === 'develop');
 
   return gulp.src('./src/css/*.css')
-    .pipe(plugins.sourcemaps.init())
+    // .pipe(plugins.sourcemaps.init())
     .pipe(plugins.concat(buildName + '.css'))
     .pipe(plugins.if(production, plugins.minifyCSS()))
-    .pipe(plugins.sourcemaps.write('./'))
+    // .pipe(plugins.sourcemaps.write('./'))
     .pipe(gulp.dest(distFolder + '/css'))
     .pipe(plugins.if(develop, plugins.livereload()));
 });
 
 
-// gulp.task('nodemon', ['build'], function() {
-//   return plugins.nodemon({
-//     script: 'server.js'
-//   });
-// });
+gulp.task('compass', ['clean', 'buildname'], function() {
+  var production = (options.env === 'production');
+  var develop = (options.env === 'develop');
+
+  gulp.src('./src/scss/*.scss')
+    .pipe(plugins.compass({
+      project: path.join(__dirname, 'src'),
+      css: 'css',
+      sass: 'scss',
+      require: ['bootstrap-sass']
+    }))
+    .pipe(plugins.rename(buildName + '.css'))
+    .pipe(plugins.if(production, plugins.minifyCSS()))
+    .pipe(gulp.dest(distFolder + '/css'))
+    .pipe(plugins.if(develop, plugins.livereload()));
+});
 
 
-gulp.task('build', ['template', 'scripts', 'styles']);
+
+gulp.task('build', ['copy', 'template', 'scripts', 'compass']);
 
 
 gulp.task('default', ['build']);
