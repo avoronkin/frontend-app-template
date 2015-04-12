@@ -1,16 +1,23 @@
 'use strict';
 
 var gulp = require('gulp');
+var runSequence = require('run-sequence');
 var path = require('path');
 var merge = require('merge-stream');
 var plugins = require('gulp-load-plugins')({
   rename: {
-    'gulp-minify-css': 'minifyCSS'
+    'gulp-minify-css': 'minifyCSS',
+    'gulp-include-source': 'includeSources'
   }
 });
 var del = require('del');
+
+var watchify = require('watchify');
 var browserify = require('browserify');
-var transform = require('vinyl-transform');
+var source = require('vinyl-source-stream');
+var buffer = require('vinyl-buffer');
+var babel = require('babelify');
+
 var minimist = require('minimist');
 var knownOptions = {
   string: 'env',
@@ -21,22 +28,39 @@ var knownOptions = {
 var options = minimist(process.argv.slice(2), knownOptions);
 
 var distFolder = './dist/';
-var buildName;
 
 
-gulp.task('buildname', function(cb) {
-  var production = (options.env === 'production');
+var config = {
+  entryFile: './node_modules/app/main.js',
+  outputDir: './dist/',
+  outputFile: 'build.js'
+};
 
-  buildName = production ? 'build_' + (new Date()).getTime() : 'build';
-  cb();
-});
+var production = (options.env === 'production');
+var develop = (options.env === 'develop');
+
+function buildName() {
+  return (options.env === 'production') ? 'build_' + (new Date()).getTime() : 'build';
+}
 
 
 gulp.task('clean', function(cb) {
   del(['dist/**'], cb);
 });
+gulp.task('clean:js', function(cb) {
+  del(['dist/js/**/*.*'], cb);
+});
+gulp.task('clean:css', function(cb) {
+  del(['dist/css/**/*.*'], cb);
+});
+gulp.task('clean:fonts', function(cb) {
+  del(['dist/fonts/**'], cb);
+});
+gulp.task('clean:images', function(cb) {
+  del(['dist/images/**'], cb);
+});
 
-gulp.task('copy', ['clean'], function() {
+gulp.task('copy', ['clean:fonts', 'clean:images'], function() {
   var fonts = gulp.src('./src/fonts/**/*.*')
     .pipe(gulp.dest(distFolder + 'fonts'));
 
@@ -46,75 +70,70 @@ gulp.task('copy', ['clean'], function() {
   return merge(fonts, images);
 });
 
-gulp.task('template', ['clean', 'buildname'], function() {
-  return gulp.src(['./src/index.html'])
-    .pipe(plugins.multinject([
-        'js/' + buildName + '.js',
-      ],
-      'js'
-    ))
-    .pipe(plugins.multinject([
-        'css/' + buildName + '.css',
-      ],
-      'css'
-    ))
+
+gulp.task('html', function() {
+  return gulp.src('./src/index.html')
+    .pipe(plugins.includeSources({
+      cwd: distFolder
+    }))
     .pipe(gulp.dest(distFolder));
 });
 
 
-gulp.task('scripts', ['clean', 'buildname'], function() {
-  var production = (options.env === 'production');
-  var develop = (options.env === 'develop');
 
-  // var browserified = transform(function(filename) {
-  //   var b = browserify(filename);
-  //   return b.bundle();
-  // });
+function compile(watch) {
+  var b = browserify(config.entryFile, {
+    debug: true
+  }).transform(babel);
 
-  return gulp.src('./node_modules/app/main.js', {
-      read: false
-    })
-    // .pipe(browserified)
-    .pipe(plugins.browserify({
-      // shim: {
-      // },
-      debug: false
-    }))
-    // .pipe(plugins.sourcemaps.init({loadMaps: true}))
-    .pipe(plugins.rename(buildName + '.js'))
-    .pipe(plugins.if(production, plugins.uglify()))
-    // .pipe(plugins.sourcemaps.write('./'))
-    .pipe(gulp.dest(distFolder + '/js'))
-    .pipe(plugins.if(develop, plugins.livereload()));
+  var bundler = watch ? watchify(b) : b;
+
+  function rebundle() {
+    return bundler.bundle()
+      .on('error', function(err) {
+        console.error(err);
+        this.emit('end');
+      })
+      .pipe(source(buildName() + '.js'))
+      .pipe(buffer())
+      .pipe(plugins.sourcemaps.init({
+        loadMaps: true
+      }))
+      .pipe(plugins.sourcemaps.write('./'))
+      .pipe(gulp.dest(distFolder + '/js'))
+      .pipe(plugins.if(develop, plugins.livereload()));
+  }
+
+  if (watch) {
+    bundler.on('update', function() {
+      console.log('-> bundling js...');
+      del(['dist/js/**/*.*'], rebundle);
+    });
+  }
+
+  return rebundle();
+}
+
+
+gulp.task('js', ['clean:js'], function() {
+  return compile();
+});
+gulp.task('js:watch', ['clean:js'], function(cb) {
+  return compile(true);
 });
 
 
-gulp.task('styles', ['clean', 'buildname'], function() {
-  var production = (options.env === 'production');
-  var develop = (options.env === 'develop');
 
-  return gulp.src('./src/css/*.css')
-    // .pipe(plugins.sourcemaps.init())
-    .pipe(plugins.concat(buildName + '.css'))
-    .pipe(plugins.if(production, plugins.minifyCSS()))
-    // .pipe(plugins.sourcemaps.write('./'))
-    .pipe(gulp.dest(distFolder + '/css'))
-    .pipe(plugins.if(develop, plugins.livereload()));
-});
-
-
-gulp.task('compass', ['clean', 'buildname'], function() {
-  var production = (options.env === 'production');
-  var develop = (options.env === 'develop');
-
-  gulp.src('./src/scss/*.scss')
+gulp.task('css', ['clean:css'], function() {
+  return gulp.src('./src/scss/*.scss')
     .pipe(plugins.compass({
       project: path.join(__dirname, 'src'),
       css: 'css',
       sass: 'scss',
-      require: ['bootstrap-sass']
+      require: ['bootstrap-sass'],
+      time: true
     }))
-    .pipe(plugins.rename(buildName + '.css'))
+    .pipe(plugins.rename(buildName() + '.css'))
     .pipe(plugins.if(production, plugins.minifyCSS()))
     .pipe(gulp.dest(distFolder + '/css'))
     .pipe(plugins.if(develop, plugins.livereload()));
@@ -122,13 +141,26 @@ gulp.task('compass', ['clean', 'buildname'], function() {
 
 
 
-gulp.task('build', ['copy', 'template', 'scripts', 'compass']);
+gulp.task('build', function(callback) {
+  runSequence('clean', ['copy', 'js', 'css'], 'html', callback);
+});
 
 
 gulp.task('default', ['build']);
 
 
-gulp.task('dev', function() {
+gulp.task('dev', ['build'], function(cb) {
   plugins.livereload.listen();
-  gulp.watch(['./node_modules/app/**/*.*', './src/**/*.*'], ['build']);
+
+  gulp.start('js:watch');
+
+  plugins.watch(['src/scss/**/*.scss'], function() {
+    gulp.start('css');
+  });
+
+
+  plugins.watch(['./dist/js/**/*.js', './dist/css/**/*.*'], function() {
+    gulp.start('html');
+  });
+
 });
