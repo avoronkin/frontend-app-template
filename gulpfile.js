@@ -125,16 +125,26 @@ gulp.task('js:watch', ['clean:js'], function(cb) {
 
 
 gulp.task('css', ['clean:css'], function() {
-  return gulp.src('./src/scss/*.scss')
-    .pipe(plugins.compass({
-      project: path.join(__dirname, 'src'),
-      css: 'css',
-      sass: 'scss',
-      require: ['bootstrap-sass'],
-      time: true
+  return gulp.src('./src/scss/main.scss')
+    .pipe(plugins.sourcemaps.init())
+    // .pipe(plugins.compass({
+    //   project: path.join(__dirname, 'src'),
+    //   css: '../dist/css',
+    //   sass: 'scss',
+    //   require: ['bootstrap-sass'],
+    //   sourcemap: true,
+    //   time: true
+    // }))
+    .pipe(plugins.sass({
+      errLogToConsole: true
     }))
-    .pipe(plugins.rename(buildName() + '.css'))
+    .pipe(plugins.autoprefixer({
+      browsers: ['> 1%'],
+      cascade: true
+    }))
     .pipe(plugins.if(production, plugins.minifyCSS()))
+    .pipe(plugins.rename(buildName() + '.css'))
+    .pipe(plugins.sourcemaps.write('./'))
     .pipe(gulp.dest(distFolder + '/css'))
     .pipe(plugins.if(develop, plugins.livereload()));
 });
