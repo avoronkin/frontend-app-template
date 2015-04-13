@@ -3,6 +3,8 @@
 var gulp = require('gulp');
 var runSequence = require('run-sequence');
 var path = require('path');
+var _ = require('lodash');
+var nodeResolve = require('resolve');
 var merge = require('merge-stream');
 var plugins = require('gulp-load-plugins')({
   rename: {
@@ -39,8 +41,9 @@ var config = {
 var production = (options.env === 'production');
 var develop = (options.env === 'develop');
 
-function buildName() {
-  return (options.env === 'production') ? 'build_' + (new Date()).getTime() : 'build';
+function buildName(prefix) {
+  prefix = prefix || 'build';
+  return (options.env === 'production') ? prefix + '_' + (new Date()).getTime() : prefix;
 }
 
 
@@ -80,21 +83,40 @@ gulp.task('html', function() {
 });
 
 
+function getNPMPackageIds() {
+  return ['debug', 'jquery'];
+}
+
 
 function compile(watch) {
-  var b = browserify(config.entryFile, {
-    debug: true
-  }).transform(babel);
+  var vendorBundle = browserify();
 
-  var bundler = watch ? watchify(b) : b;
+  getNPMPackageIds().forEach(function(id) {
+    vendorBundle.require(nodeResolve.sync(id), {
+      expose: id
+    });
+  });
+
+
+  var appBundle = browserify(config.entryFile, {
+    debug: true
+  });
+
+  getNPMPackageIds().forEach(function(id) {
+    appBundle.external(id);
+  });
+
+  appBundle.transform(babel);
+
+  var appBundler = watch ? watchify(appBundle) : appBundle;
 
   function rebundle() {
-    return bundler.bundle()
+    var app = appBundler.bundle()
       .on('error', function(err) {
         console.error(err);
         this.emit('end');
       })
-      .pipe(source(buildName() + '.js'))
+      .pipe(source(buildName('app') + '.js'))
       .pipe(buffer())
       .pipe(plugins.sourcemaps.init({
         loadMaps: true
@@ -102,10 +124,18 @@ function compile(watch) {
       .pipe(plugins.sourcemaps.write('./'))
       .pipe(gulp.dest(distFolder + '/js'))
       .pipe(plugins.if(develop, plugins.livereload()));
+
+
+    var vendor = vendorBundle.bundle()
+      .pipe(source(buildName('_vendor') + '.js'))
+      .pipe(gulp.dest(distFolder + '/js'));
+
+
+    return merge(app, vendor);
   }
 
   if (watch) {
-    bundler.on('update', function() {
+    appBundler.on('update', function() {
       console.log('-> bundling js...');
       del(['dist/js/**/*.*'], rebundle);
     });
@@ -143,7 +173,7 @@ gulp.task('css', ['clean:css'], function() {
       cascade: true
     }))
     .pipe(plugins.if(production, plugins.minifyCSS()))
-    .pipe(plugins.rename(buildName() + '.css'))
+    .pipe(plugins.rename(buildName('app') + '.css'))
     .pipe(plugins.sourcemaps.write('./'))
     .pipe(gulp.dest(distFolder + '/css'))
     .pipe(plugins.if(develop, plugins.livereload()));
@@ -174,3 +204,5 @@ gulp.task('dev', ['build'], function(cb) {
   });
 
 });
+
+
