@@ -1,9 +1,10 @@
 'use strict';
-
+process.env.BROWSERIFYSHIM_DIAGNOSTICS = 1;
 var gulp = require('gulp');
 var runSequence = require('run-sequence');
 var path = require('path');
 var _ = require('lodash');
+var shim = require('browserify-shim');
 var nodeResolve = require('resolve');
 var merge = require('merge-stream');
 var plugins = require('gulp-load-plugins')({
@@ -33,7 +34,7 @@ var distFolder = './dist/';
 
 
 var config = {
-  entryFile: './node_modules/app/main.js',
+  entryFile: './src/js/main.js',
   outputDir: './dist/',
   outputFile: 'build.js'
 };
@@ -87,9 +88,25 @@ function getNPMPackageIds() {
   return ['debug', 'jquery'];
 }
 
+function getShimmedPackages() {
+  // read package.json and get dependencies' package ids
+  var packageManifest = {};
+  try {
+    packageManifest = require('./package.json');
+  } catch (e) {
+    // does not have a package.json manifest
+  }
+  return packageManifest.browser || {};
+}
+
+function getShimmedPackageIDs() {
+  return _.keys(getShimmedPackages()) || [];
+}
+
 
 function compile(watch) {
   var vendorBundle = browserify();
+
 
   getNPMPackageIds().forEach(function(id) {
     vendorBundle.require(nodeResolve.sync(id), {
@@ -97,12 +114,24 @@ function compile(watch) {
     });
   });
 
+  _.forOwn(getShimmedPackages(), function(path, name) {
+    vendorBundle.require(path, {
+      expose: name
+    });
+  });
+
+  vendorBundle.transform('browserify-shim');
+
 
   var appBundle = browserify(config.entryFile, {
-    debug: true
+    debug: true,
+    paths: ['./src']
   });
 
   getNPMPackageIds().forEach(function(id) {
+    appBundle.external(id);
+  });
+  getShimmedPackageIDs().forEach(function(id) {
     appBundle.external(id);
   });
 
@@ -204,5 +233,3 @@ gulp.task('dev', ['build'], function(cb) {
   });
 
 });
-
-
