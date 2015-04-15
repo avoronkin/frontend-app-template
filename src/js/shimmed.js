@@ -1,4 +1,5 @@
+'use strict';
 
-function old(){
-  console.log('old style js');
+function old() {
+  console.log('old style js ');
 }

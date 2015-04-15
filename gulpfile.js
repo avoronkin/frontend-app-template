@@ -1,5 +1,5 @@
 'use strict';
-process.env.BROWSERIFYSHIM_DIAGNOSTICS = 1;
+// process.env.BROWSERIFYSHIM_DIAGNOSTICS = 1;
 var gulp = require('gulp');
 var runSequence = require('run-sequence');
 var path = require('path');
@@ -10,7 +10,8 @@ var merge = require('merge-stream');
 var plugins = require('gulp-load-plugins')({
   rename: {
     'gulp-minify-css': 'minifyCSS',
-    'gulp-include-source': 'includeSources'
+    'gulp-include-source': 'includeSources',
+    'gulp-jscs-stylish': 'jscsStylish'
   }
 });
 var del = require('del');
@@ -181,6 +182,15 @@ gulp.task('js:watch', ['clean:js'], function(cb) {
   return compile(true);
 });
 
+gulp.task('js:code-review', function() {
+  return gulp.src('./src/js/**/*.js')
+    .pipe(plugins.jshint())
+    .pipe(plugins.jscs())
+    .on('error', function() {})
+    .pipe(plugins.jscsStylish.combineWithHintResults())
+    .pipe(plugins.jshint.reporter('jshint-stylish'));
+});
+
 
 
 gulp.task('css', ['clean:css'], function() {
@@ -211,7 +221,7 @@ gulp.task('css', ['clean:css'], function() {
 
 
 gulp.task('build', function(callback) {
-  runSequence('clean', ['copy', 'js', 'css'], 'html', callback);
+  runSequence('clean', ['copy', 'js', 'js:code-review', 'css'], 'html', callback);
 });
 
 
@@ -230,6 +240,10 @@ gulp.task('dev', ['build'], function(cb) {
 
   plugins.watch(['./dist/js/**/*.js', './dist/css/**/*.*'], function() {
     gulp.start('html');
+  });
+
+  plugins.watch(['./src/js/**/*.js'], function() {
+    gulp.start('js:code-review');
   });
 
 });

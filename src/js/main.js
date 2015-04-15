@@ -1,16 +1,14 @@
 'use strict';
 
 var test = require('js/test');
+var $ = require('jquery');
+var old = require('shimmed');
 
-console.log('fffffffffffff');
+console.log('fffttfffffffff');
 test();
 
-var $ = require('jquery');
-
-$( document ).ready(function() {
-    console.log('ready!');
+$(document).ready(function() {
+  console.log('ready!');
 });
 
-
-var old= require('shimmed');
 old();
